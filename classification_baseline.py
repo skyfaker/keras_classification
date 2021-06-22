@@ -41,6 +41,10 @@ from keras.models import Sequential
 from keras.layers import Conv2D, MaxPooling2D
 from keras.layers import Activation, Dropout, Flatten, Dense
 from keras import backend as K
+from keras.preprocessing.image import array_to_img, img_to_array, load_img
+import os
+from scipy.misc import imresize
+import csv
 
 
 # dimensions of our images.
@@ -48,10 +52,12 @@ img_width, img_height = 150, 150
 
 train_data_dir = 'data/train'
 validation_data_dir = 'data/validation'
-nb_train_samples = 2000
-nb_validation_samples = 800
-epochs = 50
-batch_size = 16
+test_data_dir = 'data/test'
+num_train_samples = 80000
+[os.listdir(path) for path in os.listdir(train_data_dir)]
+num_validation_samples = 20000
+max_epochs = 100
+batch_size = 64
 
 if K.image_data_format() == 'channels_first':
     input_shape = (3, img_width, img_height)
@@ -85,9 +91,11 @@ model.compile(loss='binary_crossentropy',
 # this is the augmentation configuration we will use for training
 train_datagen = ImageDataGenerator(
     rescale=1. / 255,
-    shear_range=0.2,
+    shear_range=0.1,
     zoom_range=0.2,
-    horizontal_flip=True)
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    horizontal_flip=False)
 
 # this is the augmentation configuration we will use for testing:
 # only rescaling
@@ -107,10 +115,10 @@ validation_generator = test_datagen.flow_from_directory(
 
 model.fit_generator(
     train_generator,
-    steps_per_epoch=nb_train_samples // batch_size,
+    steps_per_epoch=num_train_samples // batch_size,
     epochs=epochs,
     validation_data=validation_generator,
-    validation_steps=nb_validation_samples // batch_size)
+    validation_steps=num_validation_samples // batch_size)
 
 model.save_weights('first_try.h5')
 
@@ -152,3 +160,32 @@ model.compile(loss='categorical_crossentropy', optimizer=sgd)
 
 model.fit(x_train, y_train, batch_size=32, epochs=10)
 score = model.evaluate(x_test, y_test, batch_size=32)
+
+
+def predict_labels(model):
+    """writes test image labels and predictions to csv"""
+    
+    test_datagen = ImageDataGenerator(rescale=1./255)
+    test_generator = test_datagen.flow_from_directory(
+        test_data_dir,
+        target_size=(img_height, img_width),
+        batch_size=32,
+        shuffle=False,
+        class_mode=None)
+
+    base_path = test_data_dir + "/test/"
+
+    with open("prediction.csv", "w") as f:
+        p_writer = csv.writer(f, delimiter=',', lineterminator='\n')
+        for _, _, imgs in os.walk(base_path):
+            for im in imgs:
+                pic_id = im.split(".")[0]
+                img = load_img(base_path + im)
+                img = imresize(img, size=(img_height, img_width))
+                test_x = img_to_array(img).reshape(3, img_height, img_width)
+                test_x = test_x.reshape((1,) + test_x.shape)
+                test_generator = test_datagen.flow(test_x,
+                                                   batch_size=1,
+                                                   shuffle=False)
+                prediction = model.predict_generator(test_generator, 1)[0][0]
+                p_writer.writerow([pic_id, prediction])
